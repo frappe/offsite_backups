@@ -143,23 +143,24 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
+scheduler_events = {
 # 	"all": [
 # 		"offsite_backups.tasks.all"
 # 	],
-# 	"daily": [
-# 		"offsite_backups.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"offsite_backups.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"offsite_backups.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"offsite_backups.tasks.monthly"
-# 	],
-# }
+	"daily_long": [
+		"offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_daily",
+		"offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_daily",
+  		"offsite_backups.doctype.google_drive.google_drive.daily_backup",
+	],
+	"weekly_long": [
+	    "offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_weekly",
+		"offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_weekly",
+  		"offsite_backups.doctype.google_drive.google_drive.weekly_backup",
+	],
+    "monthly_long": [
+		"offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_monthly"
+	],
+}
 
 # Testing
 # -------
