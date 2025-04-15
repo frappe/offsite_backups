@@ -9,7 +9,7 @@ from googleapiclient.errors import HttpError
 
 import frappe
 from frappe import _
-from offsite_backups.offsite_backups.google_oauth import GoogleOAuth
+from frappe.intergrations.google_oauth import GoogleOAuth
 from offsite_backups.offsite_backups.offsite_backup_utils import (
 	get_latest_backup_file,
 	send_email,
@@ -52,7 +52,7 @@ class GoogleDrive(Document):
 			button_label = frappe.bold(_("Allow Google Drive Access"))
 			raise frappe.ValidationError(_("Click on {0} to generate Refresh Token.").format(button_label))
 
-		oauth_obj = GoogleOAuth("drive")
+		oauth_obj = GoogleOAuth("drive","offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access")
 		r = oauth_obj.refresh_access_token(
 			self.get_password(fieldname="refresh_token", raise_exception=False)
 		)
