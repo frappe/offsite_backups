@@ -9,7 +9,7 @@ from rq.timeouts import JobTimeoutException
 
 import frappe
 from frappe import _
-from frappe.integrations.offsite_backup_utils import (
+from offsite_backups.offsite_backups.offsite_backup_utils import (
 	get_chunk_site,
 	get_latest_backup_file,
 	send_email,
