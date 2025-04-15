@@ -52,7 +52,11 @@ class GoogleDrive(Document):
 			button_label = frappe.bold(_("Allow Google Drive Access"))
 			raise frappe.ValidationError(_("Click on {0} to generate Refresh Token.").format(button_label))
 
-		oauth_obj = GoogleOAuth("drive","offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access")
+		oauth_config = {
+			"domain_callback_url": "offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access",
+			"service_version": ("drive", "v3")
+		}
+		oauth_obj = GoogleOAuth("drive", config = oauth_config)
 		r = oauth_obj.refresh_access_token(
 			self.get_password(fieldname="refresh_token", raise_exception=False)
 		)

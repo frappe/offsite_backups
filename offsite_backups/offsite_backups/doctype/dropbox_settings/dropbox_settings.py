@@ -58,7 +58,7 @@ class DropboxSettings(Document):
 def take_backup():
 	"""Enqueue longjob for taking backup to dropbox"""
 	enqueue(
-		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
+		"frappe.integrations.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
 		queue="long",
 		timeout=1500,
 	)
@@ -97,7 +97,7 @@ def take_backup_to_dropbox(retry_count=0, upload_db_backup=True):
 				"upload_db_backup": False,  # considering till worker timeout db backup is uploaded
 			}
 			enqueue(
-				"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
+				"frappe.integrations.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
 				queue="long",
 				timeout=1500,
 				**args,
@@ -297,7 +297,7 @@ def get_dropbox_settings(redirect_uri=False):
 		app_details.update(
 			{
 				"redirect_uri": get_request_site_address(True)
-				+ "/api/method/offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.dropbox_auth_finish"
+				+ "/api/method/frappe.integrations.doctype.dropbox_settings.dropbox_settings.dropbox_auth_finish"
 			}
 		)
 
