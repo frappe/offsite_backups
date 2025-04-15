@@ -9,7 +9,7 @@ from googleapiclient.errors import HttpError
 
 import frappe
 from frappe import _
-from frappe.integrations.google_oauth import GoogleOAuth
+from offsite_backups.offsite_backups.google_oauth import GoogleOAuth
 from offsite_backups.offsite_backups.offsite_backup_utils import (
 	get_latest_backup_file,
 	send_email,
@@ -146,7 +146,7 @@ def check_for_folder_in_google_drive():
 def take_backup():
 	"""Enqueue longjob for taking backup to Google Drive"""
 	enqueue(
-		"frappe.integrations.doctype.google_drive.google_drive.upload_system_backup_to_google_drive",
+		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.upload_system_backup_to_google_drive",
 		queue="long",
 		timeout=1500,
 	)

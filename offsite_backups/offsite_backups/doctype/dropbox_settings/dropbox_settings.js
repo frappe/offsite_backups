@@ -24,7 +24,7 @@ frappe.ui.form.on("Dropbox Settings", {
 		}
 
 		frappe.call({
-			method: "frappe.integrations.doctype.dropbox_settings.dropbox_settings.get_dropbox_authorize_url",
+			method: "offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.get_dropbox_authorize_url",
 			freeze: true,
 			callback: function (r) {
 				if (!r.exc) {
@@ -38,7 +38,7 @@ frappe.ui.form.on("Dropbox Settings", {
 		if (frm.doc.enabled && (frm.doc.dropbox_refresh_token || frm.doc.dropbox_access_token)) {
 			frm.add_custom_button(__("Take Backup Now"), function () {
 				frappe.call({
-					method: "frappe.integrations.doctype.dropbox_settings.dropbox_settings.take_backup",
+					method: "offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backup",
 					freeze: true,
 				});
 			});
