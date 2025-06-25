@@ -9,7 +9,7 @@ from googleapiclient.errors import HttpError
 
 import frappe
 from frappe import _
-from frappe.intergrations.google_oauth import GoogleOAuth
+from frappe.integrations.google_oauth import GoogleOAuth
 from offsite_backups.offsite_backups.offsite_backup_utils import (
 	get_latest_backup_file,
 	send_email,
