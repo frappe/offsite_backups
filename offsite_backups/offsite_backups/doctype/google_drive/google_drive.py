@@ -4,21 +4,21 @@
 import os
 from urllib.parse import quote
 
+import frappe
 from apiclient.http import MediaFileUpload
+from frappe import _
+from frappe.integrations.google_oauth import GoogleOAuth
+from frappe.model.document import Document
+from frappe.utils import get_backups_path, get_bench_path
+from frappe.utils.background_jobs import enqueue
+from frappe.utils.backups import new_backup
 from googleapiclient.errors import HttpError
 
-import frappe
-from frappe import _
-from frappe.intergrations.google_oauth import GoogleOAuth
 from offsite_backups.offsite_backups.offsite_backup_utils import (
 	get_latest_backup_file,
 	send_email,
 	validate_file_size,
 )
-from frappe.model.document import Document
-from frappe.utils import get_backups_path, get_bench_path
-from frappe.utils.background_jobs import enqueue
-from frappe.utils.backups import new_backup
 
 
 class GoogleDrive(Document):
@@ -54,9 +54,9 @@ class GoogleDrive(Document):
 
 		oauth_config = {
 			"domain_callback_url": "offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access",
-			"service_version": ("drive", "v3")
+			"service_version": ("drive", "v3"),
 		}
-		oauth_obj = GoogleOAuth("drive", config = oauth_config)
+		oauth_obj = GoogleOAuth("drive", config=oauth_config)
 		r = oauth_obj.refresh_access_token(
 			self.get_password(fieldname="refresh_token", raise_exception=False)
 		)

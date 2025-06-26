@@ -139,7 +139,7 @@
  "links": [],
  "modified": "2025-03-15 12:17:49.167012",
  "modified_by": "Administrator",
- "module": "Integrations",
+ "module": "Offsite Backups",
  "name": "S3 Backup Settings",
  "owner": "Administrator",
  "permissions": [
