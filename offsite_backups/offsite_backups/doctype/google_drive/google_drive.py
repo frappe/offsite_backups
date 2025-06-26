@@ -7,13 +7,13 @@ from urllib.parse import quote
 import frappe
 from apiclient.http import MediaFileUpload
 from frappe import _
-from frappe.integrations.google_oauth import GoogleOAuth
 from frappe.model.document import Document
 from frappe.utils import get_backups_path, get_bench_path
 from frappe.utils.background_jobs import enqueue
 from frappe.utils.backups import new_backup
 from googleapiclient.errors import HttpError
 
+from frappe.integrations.google_oauth import GoogleOAuth
 from offsite_backups.offsite_backups.offsite_backup_utils import (
 	get_latest_backup_file,
 	send_email,
