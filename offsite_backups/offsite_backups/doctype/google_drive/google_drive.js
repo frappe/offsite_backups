@@ -33,7 +33,7 @@ frappe.ui.form.on("Google Drive", {
 				});
 				frappe
 					.call({
-						method: "frappe.integrations.doctype.google_drive.google_drive.take_backup",
+						method: "offsite_backups.offsite_backups.doctype.google_drive.google_drive.take_backup",
 						btn: sync_button,
 					})
 					.then((r) => {
@@ -56,7 +56,7 @@ frappe.ui.form.on("Google Drive", {
 	},
 	authorize_google_drive_access: function (frm) {
 		frappe.call({
-			method: "frappe.integrations.doctype.google_drive.google_drive.authorize_access",
+			method: "offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access",
 			args: {
 				reauthorize: frm.doc.authorization_code ? 1 : 0,
 			},
