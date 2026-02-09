@@ -10,7 +10,7 @@ dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "boto3~=1.34.143",
-    "dropbox~=11.36.2",
+    "dropbox~=12.0.2",
     "google-api-python-client~=2.172.0"
 ]
 
@@ -21,6 +21,9 @@ build-backend = "flit_core.buildapi"
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
 # package_name = "~=1.1.0"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
 
 [tool.ruff]
 line-length = 110
