@@ -9,9 +9,9 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
-    "boto3>=1.35.0",
-    "cryptography>=42.0.0",
-    "pyopenssl>=24.0.0",
+    "boto3~=1.35.0",
+    "cryptography~=42.0.0",
+    "pyopenssl~=24.0.0",
     "dropbox~=12.0.2",
     "google-api-python-client~=2.172.0"
 ]
