@@ -126,7 +126,7 @@ def notify():
 
 def backup_to_s3():
 	from frappe.utils import get_backups_path
-	from frappe.utils.backups import new_backup
+	from frappe.utils.backups import delete_temp_backups, new_backup
 
 	doc = frappe.get_single("S3 Backup Settings")
 	bucket = doc.bucket
@@ -164,6 +164,10 @@ def backup_to_s3():
 		private_files = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_private_files))
 		upload_file_to_s3(private_files, folder, conn, bucket)
 		upload_file_to_s3(files_filename, folder, conn, bucket)
+
+	# Clean up old local backups (older than keep_backups_for_hours) now that
+	# this run is safely offsite, so fresh full backups don't accumulate on disk.
+	delete_temp_backups()
 
 
 def upload_file_to_s3(filename, folder, conn, bucket):
