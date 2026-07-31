@@ -12,12 +12,7 @@ from frappe.utils import cint
 from frappe.utils.background_jobs import enqueue
 from rq.timeouts import JobTimeoutException
 
-from offsite_backups.offsite_backups.offsite_backup_utils import (
-	generate_files_backup,
-	get_latest_backup_file,
-	send_email,
-	validate_file_size,
-)
+from offsite_backups.offsite_backups.offsite_backup_utils import send_email
 
 
 class S3BackupSettings(Document):
@@ -107,7 +102,6 @@ def take_backups_if(freq):
 @frappe.whitelist()
 def take_backups_s3(retry_count=0):
 	try:
-		validate_file_size()
 		backup_to_s3()
 		send_email(True, "Amazon S3", "S3 Backup Settings", "notify_email")
 	except JobTimeoutException:
@@ -132,7 +126,7 @@ def notify():
 
 def backup_to_s3():
 	from frappe.utils import get_backups_path
-	from frappe.utils.backups import BackupGenerator, new_backup
+	from frappe.utils.backups import new_backup
 
 	doc = frappe.get_single("S3 Backup Settings")
 	bucket = doc.bucket
@@ -146,53 +140,18 @@ def backup_to_s3():
 		endpoint_url=doc.endpoint_url or "https://s3.amazonaws.com",
 	)
 
-	if frappe.flags.create_new_backup:
-		backup = new_backup(
-			ignore_files=False,
-			backup_path_db=None,
-			backup_path_files=None,
-			backup_path_private_files=None,
-			force=True,
-		)
-		db_filename = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_db))
-		site_config = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_conf))
-		if backup_files:
-			files_filename = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_files))
-			private_files = os.path.join(
-				get_backups_path(), os.path.basename(backup.backup_path_private_files)
-			)
-	else:
-		if backup_files:
-			db_filename, site_config, files_filename, private_files = get_latest_backup_file(
-				with_files=backup_files
-			)
-
-			if not files_filename or not private_files:
-				generate_files_backup()
-				db_filename, site_config, files_filename, private_files = get_latest_backup_file(
-					with_files=backup_files
-				)
-
-		else:
-			db_filename, site_config = get_latest_backup_file()
-
-	# When reusing an existing on-disk backup (create_new_backup is False for
-	# large DBs), get_recent_backup can return None for the site config if no
-	# site_config_backup file is present. Regenerate it so the upload below does
-	# not crash with a NoneType path.
-	if not site_config:
-		odb = BackupGenerator(
-			frappe.conf.db_name,
-			frappe.conf.db_user,
-			frappe.conf.db_password,
-			db_socket=frappe.conf.db_socket,
-			db_host=frappe.conf.db_host,
-			db_port=frappe.conf.db_port,
-			db_type=frappe.conf.db_type,
-		)
-		odb.set_backup_file_name()
-		odb.copy_site_config()
-		site_config = odb.backup_path_conf
+	# Always take a fresh backup so the db, site config and files come from the
+	# same run. Reusing on-disk backups could stitch mismatched runs together and
+	# return a missing (None) site config, crashing the upload.
+	backup = new_backup(
+		ignore_files=not backup_files,
+		backup_path_db=None,
+		backup_path_files=None,
+		backup_path_private_files=None,
+		force=True,
+	)
+	db_filename = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_db))
+	site_config = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_conf))
 
 	folder = path + os.path.basename(db_filename)[:15] + "/"
 	# for adding datetime to folder name
@@ -201,11 +160,10 @@ def backup_to_s3():
 	upload_file_to_s3(site_config, folder, conn, bucket)
 
 	if backup_files:
-		if private_files:
-			upload_file_to_s3(private_files, folder, conn, bucket)
-
-		if files_filename:
-			upload_file_to_s3(files_filename, folder, conn, bucket)
+		files_filename = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_files))
+		private_files = os.path.join(get_backups_path(), os.path.basename(backup.backup_path_private_files))
+		upload_file_to_s3(private_files, folder, conn, bucket)
+		upload_file_to_s3(files_filename, folder, conn, bucket)
 
 
 def upload_file_to_s3(filename, folder, conn, bucket):
