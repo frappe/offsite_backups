@@ -132,7 +132,7 @@ def notify():
 
 def backup_to_s3():
 	from frappe.utils import get_backups_path
-	from frappe.utils.backups import new_backup
+	from frappe.utils.backups import BackupGenerator, new_backup
 
 	doc = frappe.get_single("S3 Backup Settings")
 	bucket = doc.bucket
@@ -175,6 +175,24 @@ def backup_to_s3():
 
 		else:
 			db_filename, site_config = get_latest_backup_file()
+
+	# When reusing an existing on-disk backup (create_new_backup is False for
+	# large DBs), get_recent_backup can return None for the site config if no
+	# site_config_backup file is present. Regenerate it so the upload below does
+	# not crash with a NoneType path.
+	if not site_config:
+		odb = BackupGenerator(
+			frappe.conf.db_name,
+			frappe.conf.db_user,
+			frappe.conf.db_password,
+			db_socket=frappe.conf.db_socket,
+			db_host=frappe.conf.db_host,
+			db_port=frappe.conf.db_port,
+			db_type=frappe.conf.db_type,
+		)
+		odb.set_backup_file_name()
+		odb.copy_site_config()
+		site_config = odb.backup_path_conf
 
 	folder = path + os.path.basename(db_filename)[:15] + "/"
 	# for adding datetime to folder name
