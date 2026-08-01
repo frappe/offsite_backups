@@ -194,7 +194,7 @@ def upload_from_folder(path, is_private, dropbox_folder, dropbox_client, did_not
 def upload_file_to_dropbox(filename, folder, dropbox_client):
 	"""upload files with chunk of 15 mb to reduce session append calls"""
 	if not os.path.exists(filename):
-		return
+		raise FileNotFoundError("Backup source file does not exist")
 
 	create_folder_if_not_exists(folder, dropbox_client)
 	file_size = os.path.getsize(encode(filename))
