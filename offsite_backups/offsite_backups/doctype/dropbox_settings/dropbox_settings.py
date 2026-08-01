@@ -202,34 +202,33 @@ def upload_file_to_dropbox(filename, folder, dropbox_client):
 
 	mode = dropbox.files.WriteMode.overwrite
 
-	f = open(encode(filename), "rb")
 	path = f"{folder}/{os.path.basename(filename)}"
 
 	try:
-		if file_size <= chunk_size:
-			dropbox_client.files_upload(f.read(), path, mode)
-		else:
-			upload_session_start_result = dropbox_client.files_upload_session_start(f.read(chunk_size))
-			cursor = dropbox.files.UploadSessionCursor(
-				session_id=upload_session_start_result.session_id, offset=f.tell()
-			)
-			commit = dropbox.files.CommitInfo(path=path, mode=mode)
+		with open(encode(filename), "rb") as f:
+			if file_size <= chunk_size:
+				dropbox_client.files_upload(f.read(), path, mode)
+			else:
+				upload_session_start_result = dropbox_client.files_upload_session_start(f.read(chunk_size))
+				cursor = dropbox.files.UploadSessionCursor(
+					session_id=upload_session_start_result.session_id, offset=f.tell()
+				)
+				commit = dropbox.files.CommitInfo(path=path, mode=mode)
 
-			while f.tell() < file_size:
-				if (file_size - f.tell()) <= chunk_size:
-					dropbox_client.files_upload_session_finish(f.read(chunk_size), cursor, commit)
-				else:
-					dropbox_client.files_upload_session_append(
-						f.read(chunk_size), cursor.session_id, cursor.offset
-					)
-					cursor.offset = f.tell()
+				while f.tell() < file_size:
+					if (file_size - f.tell()) <= chunk_size:
+						dropbox_client.files_upload_session_finish(f.read(chunk_size), cursor, commit)
+					else:
+						dropbox_client.files_upload_session_append(
+							f.read(chunk_size), cursor.session_id, cursor.offset
+						)
+						cursor.offset = f.tell()
 	except dropbox.exceptions.ApiError as e:
 		if isinstance(e.error, dropbox.files.UploadError):
 			error = f"File Path: {path}\n"
 			error += frappe.get_traceback()
 			frappe.log_error(error)
-		else:
-			raise
+		raise
 
 
 def create_folder_if_not_exists(folder, dropbox_client):
