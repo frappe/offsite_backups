@@ -1,7 +1,11 @@
 # Copyright (c) 2015, Frappe Technologies and contributors
 # License: MIT. See LICENSE
 
+import hashlib
+import json
 import os
+from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import dropbox
@@ -21,6 +25,12 @@ from offsite_backups.offsite_backups.offsite_backup_utils import (
 )
 
 ignore_list = [".DS_Store"]
+DROPBOX_CONTENT_BLOCK_SIZE = 4 * 1024 * 1024
+BACKUP_JOB_ID = "offsite-backups-dropbox"
+BACKUP_QUEUE = "backup"
+BACKUP_TIMEOUT = 12 * 60 * 60
+SYNC_STATE_FILENAME = "dropbox-sync-state.json"
+BACKUP_STATUS_FILENAME = "dropbox-backup-status.json"
 
 
 class DropboxSettings(Document):
@@ -56,13 +66,20 @@ class DropboxSettings(Document):
 
 @frappe.whitelist()
 def take_backup():
-	"""Enqueue longjob for taking backup to dropbox"""
-	enqueue(
+	"""Enqueue a Dropbox backup on its dedicated queue."""
+	enqueue_dropbox_backup()
+	frappe.msgprint(_("Queued for backup. It may take several hours while files are reconciled."))
+
+
+def enqueue_dropbox_backup():
+	"""Enqueue one deduplicated Dropbox backup job."""
+	return enqueue(
 		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
-		queue="long",
-		timeout=1500,
+		queue=BACKUP_QUEUE,
+		timeout=BACKUP_TIMEOUT,
+		job_id=f"{frappe.local.site}-{BACKUP_JOB_ID}",
+		deduplicate=True,
 	)
-	frappe.msgprint(_("Queued for backup. It may take a few minutes to an hour."))
 
 
 def take_backups_daily():
@@ -75,21 +92,26 @@ def take_backups_weekly():
 
 def take_backups_if(freq):
 	if frappe.db.get_single_value("Dropbox Settings", "backup_frequency") == freq:
-		take_backup_to_dropbox()
+		enqueue_dropbox_backup()
 
 
 def take_backup_to_dropbox(retry_count=0, upload_db_backup=True):
 	did_not_upload, error_log = [], []
+	write_backup_status("running", upload_db_backup=upload_db_backup)
 	try:
-		if cint(frappe.db.get_single_value("Dropbox Settings", "enabled")):
-			validate_file_size()
+		if not cint(frappe.db.get_single_value("Dropbox Settings", "enabled")):
+			write_backup_status("disabled", upload_db_backup=upload_db_backup)
+			return
 
-			did_not_upload, error_log = backup_to_dropbox(upload_db_backup)
-			if did_not_upload:
-				raise Exception
+		validate_file_size()
+		did_not_upload, error_log, summary = backup_to_dropbox(upload_db_backup)
+		if did_not_upload:
+			raise RuntimeError(_("Dropbox did not accept {0} files").format(len(did_not_upload)))
 
-			if cint(frappe.db.get_single_value("Dropbox Settings", "send_email_for_successful_backup")):
-				send_email(True, "Dropbox", "Dropbox Settings", "send_notifications_to")
+		write_backup_status("success", upload_db_backup=upload_db_backup, summary=summary)
+
+		if cint(frappe.db.get_single_value("Dropbox Settings", "send_email_for_successful_backup")):
+			send_email(True, "Dropbox", "Dropbox Settings", "send_notifications_to")
 	except JobTimeoutException:
 		if retry_count < 2:
 			args = {
@@ -98,18 +120,27 @@ def take_backup_to_dropbox(retry_count=0, upload_db_backup=True):
 			}
 			enqueue(
 				"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
-				queue="long",
-				timeout=1500,
+				queue=BACKUP_QUEUE,
+				timeout=BACKUP_TIMEOUT,
 				**args,
 			)
-	except Exception:
+		write_backup_status("failed", upload_db_backup=upload_db_backup, error="Dropbox job timed out")
+		raise
+	except Exception as exc:
 		if isinstance(error_log, str):
 			error_message = error_log + "\n" + frappe.get_traceback()
 		else:
 			file_and_error = [" - ".join(f) for f in zip(did_not_upload, error_log, strict=False)]
 			error_message = "\n".join(file_and_error) + "\n" + frappe.get_traceback()
 
+		write_backup_status(
+			"failed",
+			upload_db_backup=upload_db_backup,
+			error=str(exc),
+			failed_files=did_not_upload,
+		)
 		send_email(False, "Dropbox", "Dropbox Settings", "send_notifications_to", error_message)
+		raise
 
 
 def backup_to_dropbox(upload_db_backup=True):
@@ -125,74 +156,125 @@ def backup_to_dropbox(upload_db_backup=True):
 		else:
 			filename, site_config = get_latest_backup_file()
 
-		upload_file_to_dropbox(filename, "/database", dropbox_client)
-		upload_file_to_dropbox(site_config, "/database", dropbox_client)
+		upload_and_verify(filename, "/database", dropbox_client)
+		upload_and_verify(site_config, "/database", dropbox_client)
 
-		# delete older databases
-		if dropbox_settings["no_of_backups"]:
-			delete_older_backups(dropbox_client, "/database", dropbox_settings["no_of_backups"])
+		# This Dropbox root contains backups from more than one historic site. Automatic
+		# retention is intentionally disabled until backups are stored below a site-specific
+		# prefix; deleting by filename from the shared folder could remove another site's DR copy.
 
 	# upload files to files folder
 	did_not_upload = []
 	error_log = []
 
+	summary = {"folders": {}}
 	if dropbox_settings["file_backup"]:
-		upload_from_folder(get_files_path(), 0, "/files", dropbox_client, did_not_upload, error_log)
-		upload_from_folder(
-			get_files_path(is_private=1), 1, "/private/files", dropbox_client, did_not_upload, error_log
-		)
+		state = load_sync_state()
+		for path, dropbox_folder in (
+			(get_files_path(), "/files"),
+			(get_files_path(is_private=1), "/private/files"),
+		):
+			folder_summary = reconcile_folder(
+				path,
+				dropbox_folder,
+				dropbox_client,
+				state,
+				did_not_upload,
+				error_log,
+			)
+			summary["folders"][dropbox_folder] = folder_summary
+			save_sync_state(state)
 
-	return did_not_upload, list(set(error_log))
+	return did_not_upload, error_log, summary
 
 
-def upload_from_folder(path, is_private, dropbox_folder, dropbox_client, did_not_upload, error_log):
-	if not os.path.exists(path):
-		return
+def reconcile_folder(path, dropbox_folder, dropbox_client, state, did_not_upload, error_log):
+	"""Reconcile regular local files against Dropbox size and content hashes."""
+	path = Path(path)
+	if not path.exists():
+		return {"local_files": 0, "remote_files": 0, "uploaded_files": 0, "uploaded_bytes": 0}
 
-	if is_fresh_upload():
-		response = get_uploaded_files_meta(dropbox_folder, dropbox_client)
-	else:
-		response = frappe._dict({"entries": []})
+	remote_files = {
+		entry.name: entry
+		for entry in get_uploaded_files_meta(dropbox_folder, dropbox_client)
+		if isinstance(entry, dropbox.files.FileMetadata)
+	}
+	local_files = sorted(
+		entry
+		for entry in path.iterdir()
+		if entry.name not in ignore_list and entry.is_file() and not entry.is_symlink()
+	)
+	uploaded_files = 0
+	uploaded_bytes = 0
+	verified_files = 0
+	initial_failure_count = len(did_not_upload)
 
-	path = str(path)
+	for index, filepath in enumerate(local_files, start=1):
+		try:
+			stat = filepath.stat()
+			state_key = f"{dropbox_folder}/{filepath.name}"
+			local_hash = get_local_content_hash(filepath, state_key, stat, state)
+			remote = remote_files.get(filepath.name)
+			if remote and int(remote.size) == stat.st_size and remote.content_hash == local_hash:
+				verified_files += 1
+				continue
 
-	for f in frappe.get_all(
-		"File",
-		filters={"is_folder": 0, "is_private": is_private, "uploaded_to_dropbox": 0},
-		fields=["file_url", "name", "file_name"],
-	):
-		if not f.file_url:
-			continue
-		filename = f.file_url.rsplit("/", 1)[-1]
+			upload_and_verify(filepath, dropbox_folder, dropbox_client, expected_hash=local_hash)
+			uploaded_files += 1
+			uploaded_bytes += stat.st_size
+		except Exception:
+			did_not_upload.append(str(filepath))
+			error_log.append(frappe.get_traceback())
 
-		filepath = os.path.join(path, filename)
+		if index % 100 == 0:
+			save_sync_state(state)
 
-		if filename in ignore_list:
-			continue
+	return {
+		"local_files": len(local_files),
+		"remote_files": len(remote_files),
+		"verified_files": verified_files,
+		"uploaded_files": uploaded_files,
+		"uploaded_bytes": uploaded_bytes,
+		"failed_files": len(did_not_upload) - initial_failure_count,
+	}
 
-		found = False
-		for file_metadata in response.entries:
-			try:
-				if os.path.basename(filepath) == file_metadata.name and os.stat(
-					encode(filepath)
-				).st_size == int(file_metadata.size):
-					found = True
-					update_file_dropbox_status(f.name)
-					break
-			except Exception:
-				error_log.append(frappe.get_traceback())
 
-		if not found:
-			try:
-				upload_file_to_dropbox(filepath, dropbox_folder, dropbox_client)
-				update_file_dropbox_status(f.name)
-			except Exception:
-				did_not_upload.append(filepath)
-				error_log.append(frappe.get_traceback())
+def get_local_content_hash(filepath, state_key, stat, state):
+	"""Return a cached Dropbox content hash for an unchanged local file."""
+	cached = state["files"].get(state_key)
+	if cached and cached.get("size") == stat.st_size and cached.get("mtime_ns") == stat.st_mtime_ns:
+		return cached["content_hash"]
+
+	content_hash = dropbox_content_hash(filepath)
+	state["files"][state_key] = {
+		"size": stat.st_size,
+		"mtime_ns": stat.st_mtime_ns,
+		"content_hash": content_hash,
+	}
+	return content_hash
+
+
+def dropbox_content_hash(filepath):
+	"""Calculate the block-composed content hash defined by Dropbox."""
+	overall = hashlib.sha256()
+	with open(encode(str(filepath)), "rb") as source:
+		while block := source.read(DROPBOX_CONTENT_BLOCK_SIZE):
+			overall.update(hashlib.sha256(block).digest())
+	return overall.hexdigest()
+
+
+def upload_and_verify(filename, folder, dropbox_client, expected_hash=None):
+	"""Upload one file and verify Dropbox returned its exact size and hash."""
+	filename = Path(filename)
+	expected_hash = expected_hash or dropbox_content_hash(filename)
+	metadata = upload_file_to_dropbox(str(filename), folder, dropbox_client)
+	if not metadata or int(metadata.size) != filename.stat().st_size or metadata.content_hash != expected_hash:
+		raise RuntimeError(f"Dropbox content verification failed for {filename.name}")
+	return metadata
 
 
 def upload_file_to_dropbox(filename, folder, dropbox_client):
-	"""upload files with chunk of 15 mb to reduce session append calls"""
+	"""Upload a file in chunks and return Dropbox metadata."""
 	if not os.path.exists(filename):
 		raise FileNotFoundError("Backup source file does not exist")
 
@@ -207,7 +289,7 @@ def upload_file_to_dropbox(filename, folder, dropbox_client):
 	try:
 		with open(encode(filename), "rb") as f:
 			if file_size <= chunk_size:
-				dropbox_client.files_upload(f.read(), path, mode)
+				return dropbox_client.files_upload(f.read(), path, mode)
 			else:
 				upload_session_start_result = dropbox_client.files_upload_session_start(f.read(chunk_size))
 				cursor = dropbox.files.UploadSessionCursor(
@@ -217,7 +299,7 @@ def upload_file_to_dropbox(filename, folder, dropbox_client):
 
 				while f.tell() < file_size:
 					if (file_size - f.tell()) <= chunk_size:
-						dropbox_client.files_upload_session_finish(f.read(chunk_size), cursor, commit)
+						return dropbox_client.files_upload_session_finish(f.read(chunk_size), cursor, commit)
 					else:
 						dropbox_client.files_upload_session_append(
 							f.read(chunk_size), cursor.session_id, cursor.offset
@@ -242,23 +324,63 @@ def create_folder_if_not_exists(folder, dropbox_client):
 			raise
 
 
-def update_file_dropbox_status(file_name):
-	frappe.db.set_value("File", file_name, "uploaded_to_dropbox", 1, update_modified=False)
-
-
-def is_fresh_upload():
-	file_name = frappe.db.get_value("File", {"uploaded_to_dropbox": 1}, "name")
-	return not file_name
-
-
 def get_uploaded_files_meta(dropbox_folder, dropbox_client):
 	try:
-		return dropbox_client.files_list_folder(dropbox_folder)
+		response = dropbox_client.files_list_folder(dropbox_folder)
+		entries = list(response.entries)
+		while response.has_more:
+			response = dropbox_client.files_list_folder_continue(response.cursor)
+			entries.extend(response.entries)
+		return entries
 	except dropbox.exceptions.ApiError as e:
 		# folder not found
 		if isinstance(e.error, dropbox.files.ListFolderError):
-			return frappe._dict({"entries": []})
+			return []
 		raise
+
+
+def load_sync_state():
+	"""Load resumable local Dropbox hash state."""
+	path = Path(get_backups_path()) / SYNC_STATE_FILENAME
+	try:
+		state = json.loads(path.read_text())
+		if state.get("version") == 1 and isinstance(state.get("files"), dict):
+			return state
+	except (OSError, ValueError, TypeError):
+		pass
+	return {"version": 1, "files": {}}
+
+
+def save_sync_state(state):
+	"""Persist resumable local Dropbox hash state atomically."""
+	write_private_json(Path(get_backups_path()) / SYNC_STATE_FILENAME, state)
+
+
+def write_backup_status(status, **details):
+	"""Persist a machine-readable, secret-free backup result atomically."""
+	payload = {
+		"version": 1,
+		"site": frappe.local.site,
+		"status": status,
+		"updated_at": datetime.now(UTC).isoformat(),
+		**details,
+	}
+	write_private_json(Path(get_backups_path()) / BACKUP_STATUS_FILENAME, payload)
+
+
+def write_private_json(path, payload):
+	"""Write a root-private JSON file via atomic replacement."""
+	path.parent.mkdir(parents=True, exist_ok=True)
+	temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+	try:
+		with open(temporary, "w", encoding="utf-8") as output:
+			json.dump(payload, output, indent=2, sort_keys=True)
+			output.write("\n")
+		os.chmod(temporary, 0o600)
+		os.replace(temporary, path)
+	finally:
+		if temporary.exists():
+			temporary.unlink()
 
 
 def get_dropbox_client(dropbox_settings):
