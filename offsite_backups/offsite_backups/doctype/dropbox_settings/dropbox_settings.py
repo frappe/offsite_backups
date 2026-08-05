@@ -268,7 +268,11 @@ def upload_and_verify(filename, folder, dropbox_client, expected_hash=None):
 	filename = Path(filename)
 	expected_hash = expected_hash or dropbox_content_hash(filename)
 	metadata = upload_file_to_dropbox(str(filename), folder, dropbox_client)
-	if not metadata or int(metadata.size) != filename.stat().st_size or metadata.content_hash != expected_hash:
+	if (
+		not metadata
+		or int(metadata.size) != filename.stat().st_size
+		or metadata.content_hash != expected_hash
+	):
 		raise RuntimeError(f"Dropbox content verification failed for {filename.name}")
 	return metadata
 
