@@ -53,6 +53,26 @@ class DropboxSettings(Document):
 		if self.enabled and self.limit_no_of_backups and self.no_of_backups < 1:
 			frappe.throw(_("Number of DB backups cannot be less than 1"))
 
+		self.reset_file_upload_state_on_app_change()
+
+	def reset_file_upload_state_on_app_change(self):
+		"""Reset File.uploaded_to_dropbox when switching to a new Dropbox app."""
+		if self.is_new() or not self.has_value_changed("app_access_key"):
+			return
+
+		frappe.db.set_value(
+			"File",
+			{"uploaded_to_dropbox": 1},
+			"uploaded_to_dropbox",
+			0,
+			update_modified=False,
+		)
+		frappe.msgprint(
+			_("Dropbox app changed — file upload state reset. All files will re-check against the new destination on next backup."),
+			alert=True,
+			indicator="orange",
+		)
+
 
 @frappe.whitelist()
 def take_backup():
