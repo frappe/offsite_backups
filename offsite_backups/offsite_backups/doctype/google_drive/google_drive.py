@@ -52,11 +52,7 @@ class GoogleDrive(Document):
 			button_label = frappe.bold(_("Allow Google Drive Access"))
 			raise frappe.ValidationError(_("Click on {0} to generate Refresh Token.").format(button_label))
 
-		oauth_config = {
-			"domain_callback_url": "offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access",
-			"service_version": ("drive", "v3"),
-		}
-		oauth_obj = GoogleOAuth("drive", config=oauth_config)
+		oauth_obj = get_google_drive_oauth_obj()
 		r = oauth_obj.refresh_access_token(
 			self.get_password(fieldname="refresh_token", raise_exception=False)
 		)
@@ -64,15 +60,23 @@ class GoogleDrive(Document):
 		return r.get("access_token")
 
 
+def get_google_drive_oauth_obj():
+	oauth_config = {
+		"domain_callback_url": "offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access",
+		"service_version": ("drive", "v3"),
+	}
+	return GoogleOAuth("drive", config=oauth_config)
+
+
 @frappe.whitelist(methods=["POST"])
-def authorize_access(reauthorize=False, code=None):
+def authorize_access(reauthorize: bool = False, code: str | None = None):
 	"""
 	If no Authorization code get it from Google and then request for Refresh Token.
 	Google Contact Name is set to flags to set_value after Authorization Code is obtained.
 	"""
 
 	oauth_code = frappe.db.get_single_value("Google Drive", "authorization_code") if not code else code
-	oauth_obj = GoogleOAuth("drive")
+	oauth_obj = get_google_drive_oauth_obj()
 
 	if not oauth_code or reauthorize:
 		if reauthorize:
@@ -93,7 +97,7 @@ def authorize_access(reauthorize=False, code=None):
 def get_google_drive_object():
 	"""Return an object of Google Drive."""
 	account = frappe.get_doc("Google Drive")
-	oauth_obj = GoogleOAuth("drive")
+	oauth_obj = get_google_drive_oauth_obj()
 
 	google_drive = oauth_obj.get_google_service_object(
 		account.get_access_token(),
