@@ -2,6 +2,7 @@
 # License: MIT. See LICENSE
 import os
 import os.path
+from datetime import datetime
 
 import boto3
 import frappe
@@ -33,10 +34,12 @@ class S3BackupSettings(Document):
 		backup_files: DF.Check
 		backup_path: DF.Data | None
 		bucket: DF.Data
+		enable_backup_rotation: DF.Check
 		enabled: DF.Check
 		endpoint_url: DF.Data | None
 		frequency: DF.Literal["Daily", "Weekly", "Monthly", "None"]
 		notify_email: DF.Data
+		retention_count: DF.Int
 		secret_access_key: DF.Password
 		send_email_for_successful_backup: DF.Check
 	# end: auto-generated types
@@ -50,6 +53,10 @@ class S3BackupSettings(Document):
 
 		if self.backup_path and self.backup_path[-1] != "/":
 			self.backup_path += "/"
+
+		if self.enable_backup_rotation:
+			if not self.retention_count or self.retention_count < 1:
+				frappe.throw(_("Number of Backups to Keep must be at least 1"))
 
 		conn = boto3.client(
 			"s3",
@@ -109,6 +116,7 @@ def take_backups_s3(retry_count=0):
 	try:
 		validate_file_size()
 		backup_to_s3()
+		delete_old_backups_from_s3()
 		send_email(True, "Amazon S3", "S3 Backup Settings", "notify_email")
 	except JobTimeoutException:
 		if retry_count < 2:
@@ -194,3 +202,91 @@ def upload_file_to_s3(filename, folder, conn, bucket):
 	destpath = os.path.join(folder, os.path.basename(filename))
 	print("Uploading file:", filename)
 	conn.upload_file(filename, bucket, destpath)  # Requires PutObject permission
+
+
+def delete_s3_folder(conn, bucket, folder):
+	"""Delete all objects in a folder, chunked to stay under AWS 1000-key limit.
+
+	Args:
+		conn (boto3.client): S3 client
+		bucket (str): S3 bucket
+		folder (str): S3 folder
+	"""
+	paginator = conn.get_paginator("list_objects_v2")
+	pages = paginator.paginate(Bucket=bucket, Prefix=folder)
+
+	objects_to_delete = []
+	for page in pages:
+		for obj in page.get("Contents", []):
+			objects_to_delete.append({"Key": obj["Key"]})
+
+	errors = []
+	for i in range(0, len(objects_to_delete), 1000):
+		response = conn.delete_objects(
+			Bucket=bucket,
+			Delete={"Objects": objects_to_delete[i : i + 1000]},
+		)
+		errors.extend(response.get("Errors", []))
+
+	for err in errors:
+		frappe.log_error(
+			title="S3 Backup Rotation Delete Error",
+			message=f"Failed to delete {err['Key']}: {err['Code']} - {err['Message']}",
+		)
+
+
+def delete_old_backups_from_s3() -> int:
+	"""Delete backups from S3 bucket based on rotation settings
+
+	Returns:
+		int: Number of backups deleted
+	"""
+	doc: S3BackupSettings = frappe.get_single("S3 Backup Settings")  # type: ignore
+
+	if not doc.enabled or not doc.enable_backup_rotation or not doc.retention_count:
+		return 0
+
+	conn = boto3.client(
+		"s3",
+		aws_access_key_id=doc.access_key_id,
+		aws_secret_access_key=doc.get_password("secret_access_key"),
+		endpoint_url=doc.endpoint_url or "https://s3.amazonaws.com",
+	)
+
+	bucket = doc.bucket
+	path = doc.backup_path or ""
+
+	# List all backup folders
+	paginator = conn.get_paginator("list_objects_v2")
+	pages = paginator.paginate(Bucket=bucket, Prefix=path, Delimiter="/")
+
+	backup_folders = []
+	for page in pages:
+		for prefix in page.get("CommonPrefixes", []):
+			folder = prefix["Prefix"]
+			folder_name = folder[len(path) :]
+
+			# Extract date from folder name (format: YYYYMMDD_HHMMSS/)
+			# The folder name is 15 chars + trailing slash
+			if len(folder_name) >= 15:
+				date_str = folder_name[:15]
+				try:
+					folder_date = datetime.strptime(date_str, "%Y%m%d_%H%M%S")
+					backup_folders.append((folder, folder_date))
+				except ValueError:
+					continue
+
+	# Sort by date descending (newest first)
+	backup_folders.sort(key=lambda x: x[1], reverse=True)
+
+	# Keep only the most recent backups
+	if len(backup_folders) <= doc.retention_count:
+		return 0
+
+	folders_to_delete = backup_folders[doc.retention_count :]
+
+	# Delete old backups
+	for folder, __ in folders_to_delete:
+		delete_s3_folder(conn, bucket, folder)
+
+	return len(folders_to_delete)
