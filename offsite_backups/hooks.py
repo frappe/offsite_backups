@@ -145,9 +145,9 @@ app_license = "mit"
 # ---------------
 
 scheduler_events = {
-# 	"all": [
-# 		"offsite_backups.tasks.all"
-# 	],
+	# 	"all": [
+	# 		"offsite_backups.tasks.all"
+	# 	],
 	"daily_long": [
 		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_daily",
 		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_daily",
