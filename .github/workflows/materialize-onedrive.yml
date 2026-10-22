@@ -1,0 +1,27 @@
+name: Materialize OneDrive sources
+
+on:
+  push:
+    branches:
+      - hrop/onedrive-sharepoint-backup-595d
+    paths:
+      - payload/READY
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode sources
+        run: python3 .github/materialize_onedrive.py
+      - name: Commit sources
+        run: |
+          git config user.name "hroperators"
+          git config user.email "109808831+hroperators@users.noreply.github.com"
+          git add offsite_backups/offsite_backups/doctype/onedrive_settings/onedrive_settings.py offsite_backups/offsite_backups/doctype/onedrive_settings/onedrive_graph.py offsite_backups/offsite_backups/doctype/onedrive_settings/test_onedrive_settings.py
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: add OneDrive and SharePoint backup client"
+          git push
