@@ -1,3 +1,4 @@
+# Offsite Backups Hooks - Revision 1 - 2026-10-22 09:10:00
 app_name = "offsite_backups"
 app_title = "Offsite Backups"
 app_publisher = "Frappe Technologies Pvt. Ltd."
@@ -144,21 +145,24 @@ app_license = "mit"
 # ---------------
 
 scheduler_events = {
-	# 	"all": [
-	# 		"offsite_backups.tasks.all"
-	# 	],
+# 	"all": [
+# 		"offsite_backups.tasks.all"
+# 	],
 	"daily_long": [
 		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_daily",
 		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_daily",
 		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.daily_backup",
+		"offsite_backups.offsite_backups.doctype.onedrive_settings.onedrive_settings.daily_backup",
 	],
 	"weekly_long": [
 		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_weekly",
 		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_weekly",
 		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.weekly_backup",
+		"offsite_backups.offsite_backups.doctype.onedrive_settings.onedrive_settings.weekly_backup",
 	],
 	"monthly_long": [
-		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_monthly"
+		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_monthly",
+		"offsite_backups.offsite_backups.doctype.onedrive_settings.onedrive_settings.monthly_backup",
 	],
 }
 
