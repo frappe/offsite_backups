@@ -5,7 +5,7 @@ import glob
 import os
 
 import frappe
-from frappe.utils import cint, split_emails
+from frappe.utils import cint, escape_html, split_emails
 
 
 def send_email(success, service_name, doctype, email_field, error_status=None):
@@ -17,22 +17,24 @@ def send_email(success, service_name, doctype, email_field, error_status=None):
 		)
 		return
 
+	site = getattr(getattr(frappe, "local", None), "site", None) or "ERPNext"
+
 	if success:
 		if not frappe.db.get_single_value(doctype, "send_email_for_successful_backup"):
 			return
 
-		subject = "Backup Upload Successful"
-		message = """
+		subject = f"[{site}] Backup Upload Successful"
+		message = f"""
 <h3>Backup Uploaded Successfully!</h3>
-<p>Hi there, this is just to inform you that your backup was successfully uploaded to your {} bucket. So relax!</p>""".format(
-			service_name
-		)
+<p>Hi there, this is just to inform you that your backup for site <b>{site}</b> was successfully uploaded to your {service_name} destination. So relax!</p>"""
 	else:
-		subject = "[Warning] Backup Upload Failed"
+		subject = f"[{site}] [Warning] Backup Upload Failed"
+		escaped_error = escape_html(str(error_status or "Unknown error"))
 		message = f"""
 <h3>Backup Upload Failed!</h3>
-<p>Oops, your automated backup to {service_name} failed.</p>
-<p>Error message: {error_status}</p>
+<p>Oops, your automated backup for site <b>{site}</b> to {service_name} failed.</p>
+<p><b>Error message:</b></p>
+<pre>{escaped_error}</pre>
 <p>Please contact your system manager for more information.</p>"""
 
 	frappe.sendmail(recipients=recipients, subject=subject, message=message)
@@ -104,7 +106,7 @@ def validate_file_size():
 def generate_files_backup():
 	from frappe.utils.backups import BackupGenerator
 
-	backup = BackupGenerator(
+	odb = BackupGenerator(
 		frappe.conf.db_name,
 		frappe.conf.db_user,
 		frappe.conf.db_password,
@@ -113,6 +115,4 @@ def generate_files_backup():
 		db_port=frappe.conf.db_port,
 		db_type=frappe.conf.db_type,
 	)
-
-	backup.set_backup_file_name()
-	backup.zip_files()
+	odb.get_backup(older_than=24 * 30, ignore_files=False, force=True)

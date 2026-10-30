@@ -144,9 +144,11 @@ app_license = "mit"
 # ---------------
 
 scheduler_events = {
-	# 	"all": [
-	# 		"offsite_backups.tasks.all"
-	# 	],
+	"hourly_long": [
+		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_hourly",
+		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_hourly",
+		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.hourly_backup",
+	],
 	"daily_long": [
 		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_daily",
 		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_daily",
@@ -158,7 +160,9 @@ scheduler_events = {
 		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.weekly_backup",
 	],
 	"monthly_long": [
-		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_monthly"
+		"offsite_backups.offsite_backups.doctype.s3_backup_settings.s3_backup_settings.take_backups_monthly",
+		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backups_monthly",
+		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.monthly_backup",
 	],
 }
 

@@ -2,6 +2,7 @@
 # License: MIT. See LICENSE
 
 import os
+import posixpath
 from urllib.parse import parse_qs, urlparse
 
 import dropbox
@@ -34,7 +35,7 @@ class DropboxSettings(Document):
 
 		app_access_key: DF.Data | None
 		app_secret_key: DF.Password | None
-		backup_frequency: DF.Literal["", "Daily", "Weekly"]
+		backup_frequency: DF.Literal["", "Hourly", "Daily", "Weekly", "Monthly"]
 		dropbox_access_token: DF.Password | None
 		dropbox_refresh_token: DF.Password | None
 		enabled: DF.Check
@@ -53,10 +54,33 @@ class DropboxSettings(Document):
 		if self.enabled and self.limit_no_of_backups and self.no_of_backups < 1:
 			frappe.throw(_("Number of DB backups cannot be less than 1"))
 
+		self.reset_file_upload_state_on_app_change()
+
+	def reset_file_upload_state_on_app_change(self):
+		"""Reset File.uploaded_to_dropbox when switching to a new Dropbox app."""
+		if self.is_new() or not self.has_value_changed("app_access_key"):
+			return
+
+		frappe.db.set_value(
+			"File",
+			{"uploaded_to_dropbox": 1},
+			"uploaded_to_dropbox",
+			0,
+			update_modified=False,
+		)
+		frappe.msgprint(
+			_(
+				"Dropbox app changed. File upload state has been reset so all files will re-sync to the new destination."
+			),
+			alert=True,
+			indicator="orange",
+		)
+
 
 @frappe.whitelist()
 def take_backup():
-	"""Enqueue longjob for taking backup to dropbox"""
+	"""Enqueue longjob for taking backup to dropbox (System Manager only)"""
+	frappe.only_for("System Manager")
 	enqueue(
 		"offsite_backups.offsite_backups.doctype.dropbox_settings.dropbox_settings.take_backup_to_dropbox",
 		queue="long",
@@ -65,12 +89,20 @@ def take_backup():
 	frappe.msgprint(_("Queued for backup. It may take a few minutes to an hour."))
 
 
+def take_backups_hourly():
+	take_backups_if("Hourly")
+
+
 def take_backups_daily():
 	take_backups_if("Daily")
 
 
 def take_backups_weekly():
 	take_backups_if("Weekly")
+
+
+def take_backups_monthly():
+	take_backups_if("Monthly")
 
 
 def take_backups_if(freq):
@@ -102,14 +134,42 @@ def take_backup_to_dropbox(retry_count=0, upload_db_backup=True):
 				timeout=1500,
 				**args,
 			)
-	except Exception:
-		if isinstance(error_log, str):
-			error_message = error_log + "\n" + frappe.get_traceback()
 		else:
-			file_and_error = [" - ".join(f) for f in zip(did_not_upload, error_log, strict=False)]
-			error_message = "\n".join(file_and_error) + "\n" + frappe.get_traceback()
+			notify()
+	except Exception:
+		notify()
 
-		send_email(False, "Dropbox", "Dropbox Settings", "send_notifications_to", error_message)
+
+def notify():
+	error_message = frappe.get_traceback()
+	send_email(False, "Dropbox", "Dropbox Settings", "send_notifications_to", error_message)
+
+
+def upload_file_to_dropbox(filename, folder, dropbox_client):
+	size = os.stat(encode(filename)).st_size
+	chunk_size = get_chunk_site(size)
+
+	# Ensure path always uses forward slashes
+	dropbox_folder = folder.replace("\\", "/")
+	create_folder_if_not_exists(dropbox_folder, dropbox_client)
+
+	dropbox_path = posixpath.join(dropbox_folder, os.path.basename(filename))
+	with open(encode(filename), "rb") as f:
+		if size <= chunk_size:
+			dropbox_client.files_upload(f.read(), dropbox_path, mode=dropbox.files.WriteMode.overwrite)
+		else:
+			upload_session_start_result = dropbox_client.files_upload_session_start(f.read(chunk_size))
+			cursor = dropbox.files.UploadSessionCursor(
+				session_id=upload_session_start_result.session_id, offset=f.tell()
+			)
+			commit = dropbox.files.CommitInfo(path=dropbox_path, mode=dropbox.files.WriteMode.overwrite)
+
+			while f.tell() < size:
+				if (size - f.tell()) <= chunk_size:
+					dropbox_client.files_upload_session_finish(f.read(chunk_size), cursor, commit)
+				else:
+					dropbox_client.files_upload_session_append_v2(f.read(chunk_size), cursor)
+					cursor.offset = f.tell()
 
 
 def backup_to_dropbox(upload_db_backup=True):
@@ -128,7 +188,7 @@ def backup_to_dropbox(upload_db_backup=True):
 		upload_file_to_dropbox(filename, "/database", dropbox_client)
 		upload_file_to_dropbox(site_config, "/database", dropbox_client)
 
-		# delete older databases
+		# delete older databases and associated config files
 		if dropbox_settings["no_of_backups"]:
 			delete_older_backups(dropbox_client, "/database", dropbox_settings["no_of_backups"])
 
@@ -180,7 +240,7 @@ def upload_from_folder(path, is_private, dropbox_folder, dropbox_client, did_not
 					update_file_dropbox_status(f.name)
 					break
 			except Exception:
-				error_log.append(frappe.get_traceback())
+				continue
 
 		if not found:
 			try:
@@ -189,47 +249,6 @@ def upload_from_folder(path, is_private, dropbox_folder, dropbox_client, did_not
 			except Exception:
 				did_not_upload.append(filepath)
 				error_log.append(frappe.get_traceback())
-
-
-def upload_file_to_dropbox(filename, folder, dropbox_client):
-	"""upload files with chunk of 15 mb to reduce session append calls"""
-	if not os.path.exists(filename):
-		return
-
-	create_folder_if_not_exists(folder, dropbox_client)
-	file_size = os.path.getsize(encode(filename))
-	chunk_size = get_chunk_site(file_size)
-
-	mode = dropbox.files.WriteMode.overwrite
-
-	f = open(encode(filename), "rb")
-	path = f"{folder}/{os.path.basename(filename)}"
-
-	try:
-		if file_size <= chunk_size:
-			dropbox_client.files_upload(f.read(), path, mode)
-		else:
-			upload_session_start_result = dropbox_client.files_upload_session_start(f.read(chunk_size))
-			cursor = dropbox.files.UploadSessionCursor(
-				session_id=upload_session_start_result.session_id, offset=f.tell()
-			)
-			commit = dropbox.files.CommitInfo(path=path, mode=mode)
-
-			while f.tell() < file_size:
-				if (file_size - f.tell()) <= chunk_size:
-					dropbox_client.files_upload_session_finish(f.read(chunk_size), cursor, commit)
-				else:
-					dropbox_client.files_upload_session_append(
-						f.read(chunk_size), cursor.session_id, cursor.offset
-					)
-					cursor.offset = f.tell()
-	except dropbox.exceptions.ApiError as e:
-		if isinstance(e.error, dropbox.files.UploadError):
-			error = f"File Path: {path}\n"
-			error += frappe.get_traceback()
-			frappe.log_error(error)
-		else:
-			raise
 
 
 def create_folder_if_not_exists(folder, dropbox_client):
@@ -308,19 +327,39 @@ def get_dropbox_settings(redirect_uri=False):
 
 
 def delete_older_backups(dropbox_client, folder_path, to_keep):
+	"""Delete older database backups and associated config .json files from Dropbox."""
+	folder_path = folder_path.replace("\\", "/")
 	res = dropbox_client.files_list_folder(path=folder_path)
-	files = [f for f in res.entries if isinstance(f, dropbox.files.FileMetadata) and "sql" in f.name]
 
-	if len(files) <= to_keep:
+	# Find all database SQL backups
+	sql_files = [f for f in res.entries if isinstance(f, dropbox.files.FileMetadata) and "sql" in f.name]
+
+	if len(sql_files) <= to_keep:
 		return
 
-	files.sort(key=lambda item: item.client_modified, reverse=True)
-	for f in files[to_keep:]:
-		dropbox_client.files_delete(os.path.join(folder_path, f.name))
+	sql_files.sort(key=lambda item: item.client_modified, reverse=True)
+	all_entries = [f for f in res.entries if isinstance(f, dropbox.files.FileMetadata)]
+
+	for sql_file in sql_files[to_keep:]:
+		# Delete SQL backup
+		try:
+			dropbox_client.files_delete(posixpath.join(folder_path, sql_file.name))
+		except Exception:
+			pass
+
+		# Delete associated site_config / JSON files that share the same backup timestamp prefix (e.g. YYYYMMDD_HHMMSS)
+		prefix = sql_file.name[:15]
+		for other_file in all_entries:
+			if other_file.name.startswith(prefix) and other_file.name != sql_file.name:
+				try:
+					dropbox_client.files_delete(posixpath.join(folder_path, other_file.name))
+				except Exception:
+					pass
 
 
 @frappe.whitelist()
 def get_dropbox_authorize_url():
+	frappe.only_for("System Manager")
 	app_details = get_dropbox_settings(redirect_uri=True)
 	dropbox_oauth_flow = dropbox.DropboxOAuth2Flow(
 		consumer_key=app_details["app_key"],
@@ -338,6 +377,7 @@ def get_dropbox_authorize_url():
 
 @frappe.whitelist()
 def dropbox_auth_finish():
+	frappe.only_for("System Manager")
 	app_details = get_dropbox_settings(redirect_uri=True)
 	callback = frappe.form_dict
 	close = '<p class="text-muted">' + _("Please close this window") + "</p>"
@@ -374,5 +414,4 @@ def set_dropbox_token(access_token, refresh_token=None):
 		dropbox_settings.dropbox_refresh_token = refresh_token
 
 	dropbox_settings.save()
-
 	frappe.db.commit()

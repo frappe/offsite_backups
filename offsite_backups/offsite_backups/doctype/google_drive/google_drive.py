@@ -37,9 +37,9 @@ class GoogleDrive(Document):
 		email: DF.Data
 		enable: DF.Check
 		file_backup: DF.Check
-		frequency: DF.Literal["", "Daily", "Weekly"]
+		frequency: DF.Literal["", "Hourly", "Daily", "Weekly", "Monthly"]
 		last_backup_on: DF.Datetime | None
-		refresh_token: DF.Data | None
+		refresh_token: DF.Password | None
 		send_email_for_successful_backup: DF.Check
 	# end: auto-generated types
 
@@ -54,9 +54,10 @@ class GoogleDrive(Document):
 			raise frappe.ValidationError(_("Click on {0} to generate Refresh Token.").format(button_label))
 
 		oauth_obj = get_google_drive_oauth_obj()
-		r = oauth_obj.refresh_access_token(
-			self.get_password(fieldname="refresh_token", raise_exception=False)
+		refresh_token = (
+			self.get_password(fieldname="refresh_token", raise_exception=False) or self.refresh_token
 		)
+		r = oauth_obj.refresh_access_token(refresh_token)
 
 		return r.get("access_token")
 
@@ -66,7 +67,7 @@ def get_google_drive_oauth_obj():
 		"domain_callback_url": "offsite_backups.offsite_backups.doctype.google_drive.google_drive.authorize_access",
 		"service_version": ("drive", "v3"),
 	}
-	return GoogleOAuth("drive", config=oauth_config)
+	return GoogleOAuth("google_drive", config=oauth_config)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -75,6 +76,7 @@ def authorize_access(reauthorize: bool = False, code: str | None = None):
 	If no Authorization code get it from Google and then request for Refresh Token.
 	Google Contact Name is set to flags to set_value after Authorization Code is obtained.
 	"""
+	frappe.only_for("System Manager")
 
 	oauth_code = frappe.db.get_single_value("Google Drive", "authorization_code") if not code else code
 	oauth_obj = get_google_drive_oauth_obj()
@@ -153,7 +155,8 @@ def check_for_folder_in_google_drive():
 
 @frappe.whitelist()
 def take_backup():
-	"""Enqueue longjob for taking backup to Google Drive"""
+	"""Enqueue longjob for taking backup to Google Drive (System Manager only)"""
+	frappe.only_for("System Manager")
 	enqueue(
 		"offsite_backups.offsite_backups.doctype.google_drive.google_drive.upload_system_backup_to_google_drive",
 		queue="long",
@@ -218,6 +221,12 @@ def set_last_backup_on():
 	frappe.db.set_single_value("Google Drive", "last_backup_on", frappe.utils.now_datetime())
 
 
+def hourly_backup():
+	drive_settings = frappe.db.get_singles_dict("Google Drive", cast=True)
+	if drive_settings.enable and drive_settings.frequency == "Hourly":
+		upload_system_backup_to_google_drive()
+
+
 def daily_backup():
 	drive_settings = frappe.db.get_singles_dict("Google Drive", cast=True)
 	if drive_settings.enable and drive_settings.frequency == "Daily":
@@ -227,6 +236,12 @@ def daily_backup():
 def weekly_backup():
 	drive_settings = frappe.db.get_singles_dict("Google Drive", cast=True)
 	if drive_settings.enable and drive_settings.frequency == "Weekly":
+		upload_system_backup_to_google_drive()
+
+
+def monthly_backup():
+	drive_settings = frappe.db.get_singles_dict("Google Drive", cast=True)
+	if drive_settings.enable and drive_settings.frequency == "Monthly":
 		upload_system_backup_to_google_drive()
 
 

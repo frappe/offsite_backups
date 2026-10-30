@@ -1,163 +1,220 @@
 {
- "actions": [],
- "creation": "2017-09-04 20:57:20.129205",
- "doctype": "DocType",
- "editable_grid": 1,
- "engine": "InnoDB",
- "field_order": [
-  "enabled",
-  "api_access_section",
-  "access_key_id",
-  "column_break_4",
-  "secret_access_key",
-  "notification_section",
-  "notify_email",
-  "column_break_8",
-  "send_email_for_successful_backup",
-  "s3_bucket_details_section",
-  "bucket",
-  "endpoint_url",
-  "column_break_13",
-  "backup_path",
-  "backup_details_section",
-  "frequency",
-  "backup_files"
- ],
- "fields": [
-  {
-   "default": "0",
-   "fieldname": "enabled",
-   "fieldtype": "Check",
-   "label": "Enable Automatic Backup"
-  },
-  {
-   "fieldname": "notify_email",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Send Notifications To",
-   "mandatory_depends_on": "enabled",
-   "reqd": 1
-  },
-  {
-   "default": "1",
-   "description": "By default, emails are only sent for failed backups.",
-   "fieldname": "send_email_for_successful_backup",
-   "fieldtype": "Check",
-   "label": "Send Email for Successful Backup"
-  },
-  {
-   "fieldname": "frequency",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Backup Frequency",
-   "mandatory_depends_on": "enabled",
-   "options": "Daily\nWeekly\nMonthly\nNone",
-   "reqd": 1
-  },
-  {
-   "fieldname": "access_key_id",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Access Key ID",
-   "mandatory_depends_on": "enabled",
-   "reqd": 1
-  },
-  {
-   "fieldname": "secret_access_key",
-   "fieldtype": "Password",
-   "in_list_view": 1,
-   "label": "Access Key Secret",
-   "mandatory_depends_on": "enabled",
-   "reqd": 1
-  },
-  {
-   "default": "https://s3.amazonaws.com",
-   "description": "Only change this if you want to use other S3 compatible object storage backends.",
-   "fieldname": "endpoint_url",
-   "fieldtype": "Data",
-   "label": "Endpoint URL"
-  },
-  {
-   "fieldname": "bucket",
-   "fieldtype": "Data",
-   "label": "Bucket Name",
-   "mandatory_depends_on": "enabled",
-   "reqd": 1
-  },
-  {
-   "depends_on": "enabled",
-   "fieldname": "api_access_section",
-   "fieldtype": "Section Break",
-   "label": "API Access"
-  },
-  {
-   "fieldname": "column_break_4",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "enabled",
-   "fieldname": "notification_section",
-   "fieldtype": "Section Break",
-   "label": "Notification"
-  },
-  {
-   "fieldname": "column_break_8",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "enabled",
-   "fieldname": "s3_bucket_details_section",
-   "fieldtype": "Section Break",
-   "label": "S3 Bucket Details"
-  },
-  {
-   "fieldname": "column_break_13",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "enabled",
-   "fieldname": "backup_details_section",
-   "fieldtype": "Section Break",
-   "label": "Backup Details"
-  },
-  {
-   "default": "1",
-   "description": "Backup public and private files along with the database.",
-   "fieldname": "backup_files",
-   "fieldtype": "Check",
-   "label": "Backup Files"
-  },
-  {
-   "description": "If it's empty, it will backup to the root of the bucket.",
-   "fieldname": "backup_path",
-   "fieldtype": "Data",
-   "label": "Backup Path"
-  }
- ],
- "hide_toolbar": 1,
- "issingle": 1,
- "links": [],
- "modified": "2025-03-15 12:17:49.167012",
- "modified_by": "Administrator",
- "module": "Offsite Backups",
- "name": "S3 Backup Settings",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  }
- ],
- "quick_entry": 1,
- "row_format": "Dynamic",
- "sort_field": "creation",
- "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+    "actions": [],
+    "creation": "2017-09-04 20:57:20.129205",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "enabled",
+        "api_access_section",
+        "service_provider",
+        "access_key_id",
+        "column_break_4",
+        "secret_access_key",
+        "s3_bucket_details_section",
+        "bucket",
+        "endpoint_url",
+        "region_name",
+        "column_break_13",
+        "addressing_style",
+        "backup_path",
+        "verify_ssl",
+        "notification_section",
+        "notify_email",
+        "column_break_8",
+        "send_email_for_successful_backup",
+        "backup_details_section",
+        "frequency",
+        "backup_files",
+        "column_break_rotation",
+        "enable_backup_rotation",
+        "retention_count"
+    ],
+    "fields": [
+        {
+            "default": "0",
+            "fieldname": "enabled",
+            "fieldtype": "Check",
+            "label": "Enable Automatic Backup"
+        },
+        {
+            "depends_on": "enabled",
+            "fieldname": "api_access_section",
+            "fieldtype": "Section Break",
+            "label": "API Access"
+        },
+        {
+            "default": "Amazon S3",
+            "fieldname": "service_provider",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Storage Service Provider",
+            "mandatory_depends_on": "enabled",
+            "options": "Amazon S3\nOracle Cloud Infrastructure (OCI)\nCloudflare R2\nMinIO\nWasabi\nBackblaze B2\nDigitalOcean Spaces\nGoogle Cloud Storage\nCustom S3-Compatible",
+            "reqd": 1
+        },
+        {
+            "fieldname": "access_key_id",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Access Key ID",
+            "mandatory_depends_on": "enabled",
+            "reqd": 1
+        },
+        {
+            "fieldname": "column_break_4",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "secret_access_key",
+            "fieldtype": "Password",
+            "in_list_view": 1,
+            "label": "Access Key Secret",
+            "mandatory_depends_on": "enabled",
+            "reqd": 1
+        },
+        {
+            "depends_on": "enabled",
+            "fieldname": "s3_bucket_details_section",
+            "fieldtype": "Section Break",
+            "label": "Object Storage Bucket Details"
+        },
+        {
+            "fieldname": "bucket",
+            "fieldtype": "Data",
+            "label": "Bucket Name",
+            "mandatory_depends_on": "enabled",
+            "reqd": 1
+        },
+        {
+            "default": "https://s3.amazonaws.com",
+            "description": "Endpoint URL. For OCI: https://{namespace}.compat.objectstorage.{region}.oraclecloud.com",
+            "fieldname": "endpoint_url",
+            "fieldtype": "Data",
+            "label": "Endpoint URL"
+        },
+        {
+            "description": "Region identifier (e.g. us-ashburn-1 for OCI, us-east-1 for AWS, auto for R2).",
+            "fieldname": "region_name",
+            "fieldtype": "Data",
+            "label": "Region"
+        },
+        {
+            "fieldname": "column_break_13",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "auto",
+            "description": "OCI and MinIO require 'path'. AWS and Cloudflare R2 work with 'auto'.",
+            "fieldname": "addressing_style",
+            "fieldtype": "Select",
+            "label": "Addressing Style",
+            "options": "auto\npath\nvirtual"
+        },
+        {
+            "description": "Optional folder prefix in bucket. If empty, backups are stored in bucket root.",
+            "fieldname": "backup_path",
+            "fieldtype": "Data",
+            "label": "Backup Path"
+        },
+        {
+            "default": "1",
+            "description": "Uncheck only for local/self-hosted development environments with self-signed SSL certificates.",
+            "fieldname": "verify_ssl",
+            "fieldtype": "Check",
+            "label": "Verify SSL Certificate"
+        },
+        {
+            "depends_on": "enabled",
+            "fieldname": "notification_section",
+            "fieldtype": "Section Break",
+            "label": "Notification"
+        },
+        {
+            "fieldname": "notify_email",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Send Notifications To",
+            "mandatory_depends_on": "enabled",
+            "reqd": 1
+        },
+        {
+            "fieldname": "column_break_8",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "1",
+            "description": "By default, emails are only sent for failed backups.",
+            "fieldname": "send_email_for_successful_backup",
+            "fieldtype": "Check",
+            "label": "Send Email for Successful Backup"
+        },
+        {
+            "depends_on": "enabled",
+            "fieldname": "backup_details_section",
+            "fieldtype": "Section Break",
+            "label": "Backup Details"
+        },
+        {
+            "fieldname": "frequency",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Backup Frequency",
+            "mandatory_depends_on": "enabled",
+            "options": "Hourly\nDaily\nWeekly\nMonthly\nNone",
+            "reqd": 1
+        },
+        {
+            "default": "1",
+            "description": "Backup public and private files along with the database.",
+            "fieldname": "backup_files",
+            "fieldtype": "Check",
+            "label": "Backup Files"
+        },
+        {
+            "fieldname": "column_break_rotation",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "0",
+            "fieldname": "enable_backup_rotation",
+            "fieldtype": "Check",
+            "label": "Enable Backup Rotation"
+        },
+        {
+            "default": "5",
+            "depends_on": "eval:doc.enable_backup_rotation",
+            "description": "Keep only this many most recent backups in object storage. Older backups will be automatically removed.",
+            "fieldname": "retention_count",
+            "fieldtype": "Int",
+            "label": "Retention Count",
+            "non_negative": 1
+        }
+    ],
+    "hide_toolbar": 1,
+    "issingle": 1,
+    "links": [],
+    "modified": "2026-10-30 00:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Offsite Backups",
+    "name": "S3 Backup Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "quick_entry": 1,
+    "row_format": "Dynamic",
+    "sort_field": "creation",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
 }
